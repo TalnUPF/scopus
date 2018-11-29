@@ -81,28 +81,30 @@ def aggregate_records(item):
     for item_name, item_id in document['itemid'].items():
         itemids.append(truncate_fields(ItemID(document_id=eid, item_id=item_id, item_type=item_name)))
 
-    (scopus_source_id,
-     source_title,
-     source_abbrev,
-     source_type,
-     issn_print,
-     issn_electronic) = document['source']
+#    (scopus_source_id,
+#     source_title,
+#     source_abbrev,
+#     source_type,
+#     issn_print,
+#     issn_electronic) = document['source']
     # NOTE: this table has a separate unique primary key
-    source = Source(scopus_source_id=scopus_source_id,
-                    issn_print=issn_print,
-                    issn_electronic=issn_electronic,
-                    source_type=smart_str(source_type),
-                    source_title=smart_str(source_title),
-                    source_abbrev=smart_str(source_abbrev),
-                    )
-    truncate_fields(source)
+#    source = Source(scopus_source_id=scopus_source_id,
+#                    issn_print=issn_print,
+#                    issn_electronic=issn_electronic,
+#                    source_type=smart_str(source_type),
+#                    source_title=smart_str(source_title),
+#                    source_abbrev=smart_str(source_abbrev),
+#                    )
+#    truncate_fields(source)
 
     documents.append(Document(eid=eid,
                               doi=smart_str(document['doi']),
                               group_id=document['group-id'],
                               title=smart_str(document['title']),
-                              source=source,
-                              citation_count=item['citation']['count'],
+                              keywords = document['keywords'],
+							  asjc  = document['asjc'],
+                              #source=source,
+                              citation_count= 0, # item['citation']['count'],
                               pub_year=document['pub-year'],
                               title_language=document['title_language'],
                               citation_type=document['citation_type']
@@ -129,8 +131,8 @@ def aggregate_records(item):
                                           ))
             truncate_fields(authorships[-1])
 
-    for citation in item['citation']['eid']:
-        citations.append(Citation(cite_to=eid, cite_from=citation))
+    #for citation in item['citation']['eid']:
+    #    citations.append(Citation(cite_to=eid, cite_from=citation))
 
     return documents[-1], itemids, authorships, citations, abstracts
 
@@ -179,22 +181,22 @@ def load_to_db(doc_records):
 
     for doc_record in doc_records:
         doc = doc_record[0]
-        source = doc.source
-        try:
-            db_source, created = _with_retry(Source.get_or_create)(
-                scopus_source_id=source.scopus_source_id,
-                issn_print=source.issn_print,
-                issn_electronic=source.issn_electronic)
-        except Exception:
-            json_log(error='Loading to database failed',
-                     context={'object': source},
-                     exception=True)
-        source.pk = db_source.pk
-        if created:
-            # store other fields
-            source.save()
-        assert doc.source.pk is not None
-        doc.source_id = doc.source.pk
+#       source = doc.source
+#        try:
+#            db_source, created = _with_retry(Source.get_or_create)(
+#                scopus_source_id=source.scopus_source_id,
+#                issn_print=source.issn_print,
+#                issn_electronic=source.issn_electronic)
+#        except Exception:
+#            json_log(error='Loading to database failed',
+#                     context={'object': source},
+#                     exception=True)
+#        source.pk = db_source.pk
+#        if created:
+#            # store other fields
+#            source.save()
+#        assert doc.source.pk is not None
+#        doc.source_id = doc.source.pk
 
     try:
         _with_retry(bulk_create)(doc_records)
@@ -268,6 +270,8 @@ def generate_xml_pairs(path, eid_filter=None, count_only=False):
             xml = f.read()
             f.close()
         key = os.path.dirname(path)
+        yield path, xml, xml
+        continue
         if key in backlog:
             other_path, other_xml = backlog.pop(key)
             if other_path == path:
@@ -298,7 +302,7 @@ def _process_one(tup):
     path, doc_file, citedby_file = tup
     try:
         item = {'document': extract_document_information(doc_file),
-                'citation': extract_document_citations(citedby_file)}
+                'citation': "" } #extract_document_citations(citedby_file)}
     except Exception:
         json_log(error='Uncaught error in extraction from XML',
                  context={'path': path},

@@ -25,9 +25,9 @@ class Source(models.Model):
                                               ('w', 'w = Newspaper'),
                                               ])
     source_title = models.CharField(max_length=400, null=False, blank=False)
-    source_abbrev = models.CharField(max_length=200, null=False, blank=False)
-    issn_print = models.CharField(max_length=15, null=True, blank=False, db_index=True)
-    issn_electronic = models.CharField(max_length=15, null=True, blank=False, db_index=True)
+    source_abbrev = models.CharField(max_length=200, null=False, blank=True)
+    issn_print = models.CharField(max_length=15, null=True, blank=True,)
+    issn_electronic = models.CharField(max_length=15, null=True, blank=True)
 
     @classmethod
     @transaction.atomic
@@ -72,9 +72,13 @@ class Document(models.Model):
                                       help_text='An EID shared by likely duplicate doc entries')
     # keywords = models.ManyToManyField(Keywords)
     title = models.CharField(max_length=500, null=False, blank=False,
-                             help_text='The original (untranslated) title')
-    source = models.ForeignKey(Source, null=False,
-                               db_index=True, help_text='Where the document is published')
+                             help_text='The englsih title')
+    keywords = models.CharField(max_length=1000, null=True, blank=True,
+                             help_text='The author keywords')
+    asjc = models.CharField(max_length=300, null=True, blank=True,
+                             help_text='The asjc classification')
+    #source = models.ForeignKey(Source, null=False,
+    #                           db_index=True, help_text='Where the document is published')
     citation_count = models.IntegerField(default=0, help_text='Citation count from citedby.xml')
     title_language = models.CharField(max_length=5, default='',
                                       help_text='The language of the original title')

@@ -26,6 +26,18 @@ NAMESPACES = {
     'ce': "http://www.elsevier.com/xml/ani/common",
 }
 
+def _handle_unicode(text, default='', encoding='utf-8', errors='ignore'):
+    try:
+        return smart_text(text, encoding=encoding, errors=errors)
+    except Exception:
+        json_log(error='Encoding to `utf-8` failed', context={'eid': eid}, exception=True)
+        return default
+
+def clean_text(node, default=''):
+    if node is None:
+        return default
+    text = "".join(x for x in node.itertext())
+    return _handle_unicode(text=re.sub('\s+', ' ', text).strip(), default=default)
 
 def xpath_get_one(root, path, context=None, default=None, warn_zero=True,
                   warn_multi=True):
@@ -68,6 +80,39 @@ def xpath_get_one(root, path, context=None, default=None, warn_zero=True,
                  context=context)
     return default
 
+def xpath_get_many(root, path, context=None, default=None, warn_zero=True,
+                  warn_multi=True):
+    """Match an XPath that is expected to return exactly one result
+
+    Assures quality by logging when this expectation is violated, i.e. the
+    XPath returns 0 results (logged if warn_zero is True) or more than 1.
+
+    Parameters
+    ----------
+    root : lXML element
+        Evaluate XPath relative to this node
+    path : string
+        An XPath
+    context : dict, optional
+        Information to report in an error
+    default : any, optional
+        If no object is matched, return this value
+    warn_zero : boolean, default True
+        Whether it is offensive for the query to return no results,
+        and therefore a warning should be logged.
+    warn_multi : boolean, default True
+        Whether it is offensive for the query to select only the first of
+        multiple results, and therefore a warning should be logged.
+    """
+    out = root.xpath(path, namespaces=NAMESPACES)
+    if len(out) == 1:
+         return clean_text(out[0])
+    res=""    
+    if len(out) > 1:
+        for el in out:
+            res+=clean_text(el)+"; "
+        res=res[:-1]
+    return res
 
 def int_or_none(x):
     if x is None:
@@ -79,20 +124,11 @@ def _get_data_from_doc(document, eid):
     def doc_get_one(path, **kwargs):
         return xpath_get_one(document, path, context={'eid': eid}, **kwargs)
 
-    def _handle_unicode(text, default='', encoding='utf-8', errors='ignore'):
-        try:
-            return smart_text(text, encoding=encoding, errors=errors)
-        except Exception:
-            json_log(error='Encoding to `utf-8` failed', context={'eid': eid}, exception=True)
-            return default
+    def doc_get_many(path, **kwargs):
+        return xpath_get_many(document, path, context={'eid': eid}, **kwargs)
+   
 
-    def clean_text(node, default=''):
-        if node is None:
-            return default
-        text = "".join(x for x in node.itertext())
-        return _handle_unicode(text=re.sub('\s+', ' ', text).strip(), default=default)
-
-    abstract_node = doc_get_one('/xocs:doc/xocs:item/item/bibrecord/head/abstracts/abstract[@original="y"]', warn_zero=False)
+    abstract_node = doc_get_one('/xocs:doc/xocs:item/item/bibrecord/head/abstracts/abstract[@xml:lang="eng"]', warn_zero=False)
     if abstract_node is None:
         abstract_text = ''
     else:
@@ -105,14 +141,16 @@ def _get_data_from_doc(document, eid):
     data = {
         'eid': eid,
         'pub-year': pub_year,
-        'group-id': int(doc_get_one('/xocs:doc/xocs:meta/cto:group-id/text()')),
-        'title': clean_text(doc_get_one('/xocs:doc/xocs:item/item/bibrecord/head/citation-title/titletext[@original="y"]')),
+        'group-id': int(doc_get_one('/xocs:doc/xocs:meta/cto:group-id/text()', default=-1, warn_zero=False)),
+        'title': clean_text(doc_get_one('/xocs:doc/xocs:item/item/bibrecord/head/citation-title/titletext[@xml:lang="eng"]',warn_multi=False)),
         'citation_type': doc_get_one('/xocs:doc/xocs:item/item/bibrecord/head/citation-info/citation-type/@*', default = ''),
         # we don't warn for lang because we warn for the title
         'title_language': doc_get_one('/xocs:doc/xocs:item/item/bibrecord/head/citation-title/titletext[@original="y"]/@xml:lang',
                                       default='und', warn_multi=False, warn_zero=False) or 'und',  # language undetermined as per http://www.loc.gov/standards/iso639-2/faq.html#25
         'abstract': abstract_text,
         'doi': _handle_unicode(doi_node),
+        'asjc': doc_get_many('/xocs:doc/xocs:item/item/bibrecord/head/enhancement/classificationgroup/classifications[@type="ASJC"]/classification'),
+        'keywords': doc_get_many('/xocs:doc/xocs:item/item/bibrecord/head/citation-info/author-keywords/author-keyword'),
     }
 
     itemids = document.xpath('/xocs:doc/xocs:item/item/bibrecord/item-info/itemidlist/itemid', namespaces=NAMESPACES)
@@ -121,7 +159,8 @@ def _get_data_from_doc(document, eid):
     except KeyError:
         json_log(eid=eid, error='Could not get idtype for itemid {!r}'.format(item.text), exception=True)
 
-    source = doc_get_one('/xocs:doc/xocs:item/item/bibrecord/head/source')
+    #source = doc_get_one('/xocs:doc/xocs:item/item/bibrecord/head/source')
+    source =None
     if source is None:
         data['source'] = (None,) * 6
     else:
@@ -134,7 +173,7 @@ def _get_data_from_doc(document, eid):
                           xpath_get_one(source, './issn[@type=\'print\']/text()', context={'eid': eid, 'srcid': srcid}, warn_zero=False),
                           xpath_get_one(source, './issn[@type=\'electronic\']/text()', context={'eid': eid, 'srcid': srcid}, warn_zero=False),
                           )
-
+    
     authors_groups = document.xpath('/xocs:doc/xocs:item/item/bibrecord/head/author-group', namespaces=NAMESPACES)
 
     authors_list = defaultdict(dict)
